@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pdfplumber
 from dotenv import load_dotenv
 import functools
+import sys
 
 # Désactive le buffer pour les logs
 print = functools.partial(print, flush=True)
@@ -20,6 +21,20 @@ ROOT_DIR = "/starstock"
 PATTERN = re.compile(r"ANR-(?:\d{2}-)?[A-Za-z0-9]{4,8}(?:-\d{1,4})?\b")
 OUTPUT_DIR = "/output"
 CSV_FILE = os.path.join(OUTPUT_DIR, f"results_{OFFSET}_to_{OFFSET + MAX_FILES}.csv")
+LOG_FILE = os.path.join(OUTPUT_DIR, "logs.txt")
+
+def setup_logging():
+    """Configure les logs pour écrire dans un fichier et la console."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    return open(LOG_FILE, 'a', encoding='utf-8')
+
+def log(message):
+    """Écrit un message dans les logs (fichier + console)."""
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    formatted_message = f"[{timestamp}] {message}"
+    print(formatted_message)
+    with open(LOG_FILE, 'a', encoding='utf-8') as f:
+        f.write(formatted_message + "\n")
 
 def find_pdf_files_in_batches(batch_size):
     """Génère des lots de fichiers PDF depuis /starstock/*/THESE_*/document/0/0/"""
@@ -51,22 +66,24 @@ def find_pdf_files_in_batches(batch_size):
 
 def process_file(file_path):
     try:
-        print(f"📖 Traitement de {file_path}")
+        log(f"📖 Traitement de {file_path}")
         with open(file_path, "rb") as f:
             with pdfplumber.open(f) as pdf:
                 matches = []
                 for page in pdf.pages:
                     text = page.extract_text()
                     if text:
-                        matches.extend(PATTERN.findall(text))
+                        found_matches = PATTERN.findall(text)
+                        if found_matches:
+                            matches.extend(found_matches)
                 return file_path, matches
     except Exception as e:
-        print(f"⚠️ Erreur sur {file_path}: {e}")
+        log(f"⚠️ Erreur sur {file_path}: {e}")
         return file_path, []
 
 def main():
     script_start_time = datetime.now()
-    print(f"🚀 Début du script à {script_start_time.strftime('%H:%M:%S')}")
+    log(f"🚀 Début du script à {script_start_time.strftime('%H:%M:%S')}")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     total_matches = 0
@@ -79,7 +96,7 @@ def main():
         for batch in find_pdf_files_in_batches(MAX_FILES):
             batch_count += 1
             batch_start_time = datetime.now()
-            print(f"📦 Lot {batch_count} ({len(batch)} fichiers) - Début à {batch_start_time.strftime('%H:%M:%S')}")
+            log(f"📦 Lot {batch_count} ({len(batch)} fichiers) - Début à {batch_start_time.strftime('%H:%M:%S')}")
 
             with ThreadPoolExecutor(max_workers=4) as executor:
                 futures = {executor.submit(process_file, file): file for file in batch}
@@ -92,15 +109,15 @@ def main():
 
             batch_end_time = datetime.now()
             batch_duration = (batch_end_time - batch_start_time).total_seconds()
-            print(f"⏱️ Lot {batch_count} terminé à {batch_end_time.strftime('%H:%M:%S')} (durée: {batch_duration:.2f} secondes)")
+            log(f"⏱️ Lot {batch_count} terminé à {batch_end_time.strftime('%H:%M:%S')} (durée: {batch_duration:.2f} secondes)")
 
     script_end_time = datetime.now()
     script_duration = (script_end_time - script_start_time).total_seconds()
-    print(f"🎉 Script terminé à {script_end_time.strftime('%H:%M:%S')}")
-    print(f"⏳ Durée totale: {script_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}")
+    log(f"🎉 Script terminé à {script_end_time.strftime('%H:%M:%S')}")
+    log(f"⏳ Durée totale: {script_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}")
 
     if len(batch) == MAX_FILES:  # Si le dernier lot est plein, il reste des fichiers
-        print(f"🔄 Relancez avec OFFSET={OFFSET + MAX_FILES} pour continuer.")
+        log(f"🔄 Relancez avec OFFSET={OFFSET + MAX_FILES} pour continuer.")
 
 if __name__ == "__main__":
     main()
