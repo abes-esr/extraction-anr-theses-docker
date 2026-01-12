@@ -53,7 +53,7 @@ def process_file(file_path):
     try:
         print(f"📖 Traitement de {file_path}")
         with open(file_path, "rb") as f:
-            with pdfplumber.load(f) as pdf:
+            with pdfplumber.open(f) as pdf:
                 matches = []
                 for page in pdf.pages:
                     text = page.extract_text()
