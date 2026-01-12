@@ -65,18 +65,36 @@ def find_pdf_files_in_batches(batch_size):
         yield pdf_files
 
 def process_file(file_path):
+    start_time = time.time()
     try:
         log(f"📖 Traitement de {file_path}")
-        with open(file_path, "rb") as f:
-            with pdfplumber.open(f) as pdf:
-                matches = []
-                for page in pdf.pages:
-                    text = page.extract_text()
-                    if text:
-                        found_matches = PATTERN.findall(text)
-                        if found_matches:
-                            matches.extend(found_matches)
-                return file_path, matches
+        with pdfplumber.open(
+                file_path,
+                lap_params={
+                    "char_margin": 3.0,      # Marge élevée pour regrouper les caractères rapidement
+                    "line_margin": 0.1,      # Marge minimale pour les lignes
+                    "word_margin": 0.1,      # Marge minimale pour les mots
+                    "box_margin": 0.1,       # Marge minimale pour les boîtes de texte
+                    "all_texts": True,       # Se concentre uniquement sur le texte
+                },
+                extract_method="words",     # Méthode optimisée pour le texte pur
+                suppress_warnings=True      # Désactive les avertissements
+        ) as pdf:
+            matches = []
+            for page in pdf.pages:
+                # Extraction du texte avec des tolérances optimisées
+                text = page.extract_text(
+                    x_tolerance=2,       # Tolérance horizontale pour fusionner les blocs de texte
+                    y_tolerance=2,       # Tolérance verticale pour fusionner les lignes
+                    extra_attrs=["fontname", "size"]  # Optionnel : pour filtrer par attributs si besoin
+                )
+                if text:
+                    found_matches = PATTERN.findall(text)
+                    if found_matches:
+                        matches.extend(found_matches)
+        duration = time.time() - start_time
+        log(f"⏱️ {os.path.basename(file_path)} traité en {duration:.2f}s ({len(pdf.pages)} pages) - {len(matches)} matches")
+        return file_path, matches
     except Exception as e:
         log(f"⚠️ Erreur sur {file_path}: {e}")
         return file_path, []
