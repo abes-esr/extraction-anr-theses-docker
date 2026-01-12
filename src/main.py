@@ -18,6 +18,10 @@ def find_pdf_files(root_dir):
     """Trouve tous les fichiers PDF dans la structure :
     /starstock/*/THESE_*/document/0/0/*.pdf
     """
+    if not os.path.exists(root_dir):
+        print(f"❌ Le chemin {root_dir} n'existe pas !")
+        return []
+
     pdf_files = []
     # On utilise os.walk pour parcourir l'arborescence
     for root, dirs, files in os.walk(root_dir):
