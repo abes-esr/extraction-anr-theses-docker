@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   extraction-anr-theses:
     build: .
