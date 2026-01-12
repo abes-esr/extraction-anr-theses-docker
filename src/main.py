@@ -3,6 +3,13 @@ import re
 import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pdfplumber
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=".env.local")  # Charge le fichier .env.local
+
+# Récupère les variables d'environnement
+MAX_FILES = int(os.getenv("MAX_FILES", "0"))  # 0 = pas de limite
+OFFSET = int(os.getenv("OFFSET", "0"))
 
 # Chemin racine dans le conteneur (monté depuis /applis/portail/theses/STARSTOCK)
 ROOT_DIR = "/starstock"

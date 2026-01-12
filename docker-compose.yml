@@ -8,3 +8,6 @@ services:
       - "${OUTPUT_PATH}:/output"
     env_file:
       - .env
+    environment:
+      - MAX_FILES=${MAX_FILES}
+      - OFFSET=${OFFSET}
