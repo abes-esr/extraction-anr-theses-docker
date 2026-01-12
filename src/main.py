@@ -116,7 +116,7 @@ def main():
             batch_start_time = datetime.now()
             log(f"📦 Lot {batch_count} ({len(batch)} fichiers) - Début à {batch_start_time.strftime('%H:%M:%S')}")
 
-            with ThreadPoolExecutor(max_workers=4) as executor:
+            with ThreadPoolExecutor(max_workers=8) as executor:
                 futures = {executor.submit(process_file, file): file for file in batch}
                 for future in as_completed(futures):
                     file_path, matches = future.result()
