@@ -1,18 +1,24 @@
+
 import os
 import re
 import csv
+import sys
+import functools
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pdfplumber
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path=".env.local")  # Charge le fichier .env.local
+# Désactive le buffer pour les prints
+print = functools.partial(print, flush=True)
+
+# Charge les variables d'environnement
+load_dotenv(dotenv_path="/app/.env")
 
 # Récupère les variables d'environnement
 MAX_FILES = int(os.getenv("MAX_FILES", "0"))  # 0 = pas de limite
 OFFSET = int(os.getenv("OFFSET", "0"))
-
-# Chemin racine dans le conteneur (monté depuis /applis/portail/theses/STARSTOCK)
 ROOT_DIR = "/starstock"
+PATTERN = re.compile(r"ANR-[A-Za-z0-9]{4}")
 
 def find_pdf_files(root_dir):
     """Trouve tous les fichiers PDF dans la structure :
@@ -23,12 +29,9 @@ def find_pdf_files(root_dir):
         return []
 
     pdf_files = []
-    # On utilise os.walk pour parcourir l'arborescence
     for root, dirs, files in os.walk(root_dir):
-        # On vérifie que le chemin relatif correspond au motif
         rel_path = os.path.relpath(root, root_dir)
         parts = rel_path.split(os.sep)
-        # On veut : [*, "THESE_*", "document", "0", "0"]
         if (len(parts) >= 4 and
                 parts[-3].startswith("THESE_") and
                 parts[-2] == "document" and
@@ -42,6 +45,7 @@ def find_pdf_files(root_dir):
 def process_file(file_path):
     matches = []
     try:
+        print(f"📖 Traitement de : {file_path}")
         with open(file_path, "rb") as f:
             with pdfplumber.load(f) as pdf:
                 for page in pdf.pages:
@@ -54,15 +58,21 @@ def process_file(file_path):
     return file_path, matches
 
 def main():
-    PATTERN = re.compile(r"ANR-[A-Za-z0-9]{4}")
+    print("🚀 Début du script...")
     OUTPUT_DIR = "/output"
     CSV_FILE = os.path.join(OUTPUT_DIR, "results.csv")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     pdf_files = find_pdf_files(ROOT_DIR)
 
+    # Applique l'offset et la limite
+    if OFFSET > 0:
+        pdf_files = pdf_files[OFFSET:]
+    if MAX_FILES > 0:
+        pdf_files = pdf_files[:MAX_FILES]
+
     print(f"🔍 Recherche dans : {ROOT_DIR}")
-    print(f"📄 Nombre de fichiers PDF trouvés : {len(pdf_files)}")
+    print(f"📄 Nombre de fichiers PDF à traiter : {len(pdf_files)} (offset={OFFSET}, max={MAX_FILES if MAX_FILES > 0 else 'illimité'})")
 
     with open(CSV_FILE, 'w', newline='', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile)
@@ -75,7 +85,7 @@ def main():
                 if matches:
                     print(f"=== Match dans : {file_path} ===")
                     for match in matches:
-                        print(match)
+                        print(f"🔍 {match}")
                         writer.writerow([file_path, match])
 
     print(f"✅ Terminé. Résultats dans {CSV_FILE}")
