@@ -68,20 +68,18 @@ def process_file(file_path):
     start_time = time.time()
     try:
         log(f"📖 Traitement de {file_path}")
-        # Correction : `lap_params` n'existe pas dans `pdfplumber.open()`.
-        # Utilisation de `pdfplumber.open()` sans paramètres invalides.
         with pdfplumber.open(file_path) as pdf:
             matches = []
             for page in pdf.pages:
-                # Extraction optimisée avec `extract_text()`, sans paramètres invalides.
-                # Utilisation de `x_tolerance` et `y_tolerance` dans `extract_text()` pour regrouper le texte.
-                text = page.extract_text(
-                    x_tolerance=2,       # Tolérance horizontale pour fusionner les mots proches
-                    y_tolerance=2,       # Tolérance verticale pour fusionner les lignes proches
-                    extra_attrs=[]       # Désactive la récupération des attributs supplémentaires (gain de performance)
+                found_matches = page.search(
+                    PATTERN.pattern,
+                    regex=True,
+                    case=False,
+                    layout=False
                 )
-                if text:
-                    matches.extend(PATTERN.findall(text))
+                if found_matches:
+                    for match in found_matches:
+                        matches.append(match["text"])
         duration = time.time() - start_time
         log(f"⏱️ {os.path.basename(file_path)} traité en {duration:.2f}s ({len(pdf.pages)} pages) - {len(matches)} matches")
         return file_path, matches
@@ -108,7 +106,7 @@ def main():
 
             # Correction : Utilise une liste pour stocker les futures, pas un dictionnaire
             futures = []
-            with ThreadPoolExecutor(max_workers=4) as executor:
+            with ThreadPoolExecutor(max_workers=8) as executor:
                 for file in batch:
                     futures.append(executor.submit(process_file, file))
 
