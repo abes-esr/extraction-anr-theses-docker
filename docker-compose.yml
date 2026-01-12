@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  extraction-anr-theses:
+    build: .
+    volumes:
+      - "${DATA_PATH}:/starstock"
+      - "${OUTPUT_PATH}:/output"
+    env_file:
+      - .env
