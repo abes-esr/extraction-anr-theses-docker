@@ -1,17 +1,10 @@
-# Utilise une image Python légère
 FROM python:3.9-slim
-
-# Définis le répertoire de travail
 WORKDIR /app
-
-# Copie les dépendances
+# Copie des dépendances
 COPY requirements.txt .
-
-# Installe les dépendances
+# Instalation les dépendances
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Copie le code source
+# Copie du code source
 COPY src/ .
-
-# Commande par défaut (optionnel)
+# Commande par défaut
 CMD ["python", "main.py"]
