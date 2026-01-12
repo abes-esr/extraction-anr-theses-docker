@@ -17,7 +17,7 @@ load_dotenv()
 MAX_FILES = int(os.getenv("MAX_FILES", "1000"))
 OFFSET = int(os.getenv("OFFSET", "0"))
 ROOT_DIR = "/starstock"
-PATTERN = re.compile(r"ANR-[A-Za-z0-9]{4}")
+PATTERN = re.compile(r"ANR-(?:\d{2}-)?[A-Za-z0-9]{4,8}(?:-\d{1,4})?\b")
 OUTPUT_DIR = "/output"
 CSV_FILE = os.path.join(OUTPUT_DIR, f"results_{OFFSET}_to_{OFFSET + MAX_FILES}.csv")
 
