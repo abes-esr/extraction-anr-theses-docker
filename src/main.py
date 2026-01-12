@@ -68,30 +68,20 @@ def process_file(file_path):
     start_time = time.time()
     try:
         log(f"📖 Traitement de {file_path}")
-        with pdfplumber.open(
-                file_path,
-                lap_params={
-                    "char_margin": 3.0,      # Marge élevée pour regrouper les caractères rapidement
-                    "line_margin": 0.1,      # Marge minimale pour les lignes
-                    "word_margin": 0.1,      # Marge minimale pour les mots
-                    "box_margin": 0.1,       # Marge minimale pour les boîtes de texte
-                    "all_texts": True,       # Se concentre uniquement sur le texte
-                },
-                extract_method="words",     # Méthode optimisée pour le texte pur
-                suppress_warnings=True      # Désactive les avertissements
-        ) as pdf:
+        # Correction : `lap_params` n'existe pas dans `pdfplumber.open()`.
+        # Utilisation de `pdfplumber.open()` sans paramètres invalides.
+        with pdfplumber.open(file_path) as pdf:
             matches = []
             for page in pdf.pages:
-                # Extraction du texte avec des tolérances optimisées
+                # Extraction optimisée avec `extract_text()`, sans paramètres invalides.
+                # Utilisation de `x_tolerance` et `y_tolerance` dans `extract_text()` pour regrouper le texte.
                 text = page.extract_text(
-                    x_tolerance=2,       # Tolérance horizontale pour fusionner les blocs de texte
-                    y_tolerance=2,       # Tolérance verticale pour fusionner les lignes
-                    extra_attrs=["fontname", "size"]  # Optionnel : pour filtrer par attributs si besoin
+                    x_tolerance=2,       # Tolérance horizontale pour fusionner les mots proches
+                    y_tolerance=2,       # Tolérance verticale pour fusionner les lignes proches
+                    extra_attrs=[]       # Désactive la récupération des attributs supplémentaires (gain de performance)
                 )
                 if text:
-                    found_matches = PATTERN.findall(text)
-                    if found_matches:
-                        matches.extend(found_matches)
+                    matches.extend(PATTERN.findall(text))
         duration = time.time() - start_time
         log(f"⏱️ {os.path.basename(file_path)} traité en {duration:.2f}s ({len(pdf.pages)} pages) - {len(matches)} matches")
         return file_path, matches
@@ -116,8 +106,12 @@ def main():
             batch_start_time = datetime.now()
             log(f"📦 Lot {batch_count} ({len(batch)} fichiers) - Début à {batch_start_time.strftime('%H:%M:%S')}")
 
-            with ThreadPoolExecutor(max_workers=8) as executor:
-                futures = {executor.submit(process_file, file): file for file in batch}
+            # Correction : Utilise une liste pour stocker les futures, pas un dictionnaire
+            futures = []
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                for file in batch:
+                    futures.append(executor.submit(process_file, file))
+
                 for future in as_completed(futures):
                     file_path, matches = future.result()
                     if matches:
@@ -134,7 +128,7 @@ def main():
     log(f"🎉 Script terminé à {script_end_time.strftime('%H:%M:%S')}")
     log(f"⏳ Durée totale: {script_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}")
 
-    if len(batch) == MAX_FILES:  # Si le dernier lot est plein, il reste des fichiers
+    if len(batch) == MAX_FILES:
         log(f"🔄 Relancez avec OFFSET={OFFSET + MAX_FILES} pour continuer.")
 
 if __name__ == "__main__":
