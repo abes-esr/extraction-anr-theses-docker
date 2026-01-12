@@ -1,5 +1,6 @@
 services:
   extraction-anr-theses:
+    container_name: extraction-anr-theses
     build: .
     volumes:
       - "${DATA_PATH}:/starstock"
