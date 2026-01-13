@@ -93,7 +93,7 @@ def process_file(file_path, file_count):
                 continue
 
         duration = time.time() - start_time
-        message = f"⏱️ n°{file_count} {os.path.basename(file_path)} traité en {duration:.2f}s ({len(doc)} pages) - {len(matches)} matches"
+        message = f"⏱️  n°{file_count} {file_path} traité en {duration:.2f}s ({len(doc)} pages) - {len(matches)} matches"
         print(message)
         return file_path, matches, [message]
     except Exception as e:
