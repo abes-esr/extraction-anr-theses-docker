@@ -69,7 +69,13 @@ def process_file(file_path):
         message = f"📖 Traitement de {file_path}"
         print(message)
 
-        doc = pymupdf.open(file_path)
+        try:
+            doc = pymupdf.open(file_path)
+        except Exception as e:
+            message = f"⚠️ Impossible d'ouvrir {file_path}: {str(e)}"
+            print(message)
+            return file_path, [], [message]
+
         matches = []
 
         for page in doc:
