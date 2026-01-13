@@ -2,6 +2,10 @@ services:
   extraction-anr-theses:
     container_name: extraction-anr-theses
     build: .
+    mem_limit: ${MEM_LIMIT}
+    memswap_limit: ${MEM_LIMIT}
+    cpus: ${CPU_LIMIT}
+    restart: no
     volumes:
       - "${DATA_PATH}:/starstock"
       - "${OUTPUT_PATH}:/output"
