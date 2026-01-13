@@ -24,7 +24,6 @@ PATTERN = re.compile(r"ANR-(?:\d{2}-)?[A-Za-z0-9]{4,8}(?:-\d{1,4})?\b")
 OUTPUT_DIR = "/output"
 # Génère un identifiant unique pour cette exécution
 RUN_ID = str(uuid.uuid4())[:8]
-CSV_FILE = os.path.join(OUTPUT_DIR, f"results_{OFFSET}_to_{OFFSET + MAX_FILES}_{RUN_ID}.csv")
 
 # Créer un verrou pour l'écriture dans le CSV
 csv_writer_lock = threading.Lock()
@@ -115,6 +114,7 @@ def main():
     print(f"[{script_start_time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 Début du script (ID: {RUN_ID})")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    CSV_FILE = os.path.join(OUTPUT_DIR, f"results_{OFFSET}_to_{OFFSET + MAX_FILES}_{RUN_ID}.csv")
     total_matches = 0
 
     # Ouvre le fichier CSV une fois pour toute la durée du script
