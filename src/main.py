@@ -62,7 +62,7 @@ def find_pdf_files_in_batches(batch_size):
     if pdf_files:  # Dernier lot
         yield pdf_files
 
-def process_file(file_path):
+def process_file(file_path, file_count):
     start_time = time.time()
     try:
         message = f"📖 Traitement de {file_path}"
@@ -89,7 +89,7 @@ def process_file(file_path):
                 continue
 
         duration = time.time() - start_time
-        message = f"⏱️ {os.path.basename(file_path)} traité en {duration:.2f}s ({len(doc)} pages) - {len(matches)} matches"
+        message = f"⏱️ n°{file_count} {os.path.basename(file_path)} traité en {duration:.2f}s ({len(doc)} pages) - {len(matches)} matches"
         print(message)
         return file_path, matches, [message]
     except Exception as e:
@@ -112,24 +112,24 @@ def main():
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     total_matches = 0
-    batch_count = 0
 
     with open(CSV_FILE, 'w', newline='', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["file", "match"])
 
         for batch in find_pdf_files_in_batches(MAX_FILES):
-            batch_count += 1
-            LOG_FILE = os.path.join(OUTPUT_DIR, f"batch_{batch_count}_offset_{OFFSET}_{RUN_ID}.log")
+            LOG_FILE = os.path.join(OUTPUT_DIR, f"batch_offset_{OFFSET}_{RUN_ID}.log")
             batch_start_time = datetime.now()
+            file_count = 0
 
             with open(LOG_FILE, 'w', encoding='utf-8') as log_file:
-                log(f"📦 Lot {batch_count} (ID: {RUN_ID}) - Début à {datetime.now().strftime('%H:%M:%S')}", log_file=log_file)
+                log(f"📦 Lot (ID: {RUN_ID}) - Début à {datetime.now().strftime('%H:%M:%S')}", log_file=log_file)
 
                 futures = []
                 with ThreadPoolExecutor(max_workers=int(os.getenv("MAX_WORKERS", "4"))) as executor:
                     for file in batch:
-                        futures.append(executor.submit(process_file, file))
+                        file_count += 1
+                        futures.append(executor.submit(process_file, file, file_count))
 
                     for future in as_completed(futures):
                         file_path, matches, messages = future.result()
@@ -144,7 +144,7 @@ def main():
 
                 batch_end_time = datetime.now()
                 batch_duration = (batch_end_time - batch_start_time).total_seconds()
-                log(f"⏱️ Lot {batch_count} terminé à {batch_end_time.strftime('%H:%M:%S')} (durée: {batch_duration:.2f} secondes)", log_file=log_file)
+                log(f"⏱️ Lot terminé à {batch_end_time.strftime('%H:%M:%S')} (durée: {batch_duration:.2f} secondes)", log_file=log_file)
 
     script_end_time = datetime.now()
     script_duration = (script_end_time - script_start_time).total_seconds()
