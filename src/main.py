@@ -5,7 +5,7 @@ import csv
 import time
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import pdfplumber
+import fitz  # PyMuPDF
 from dotenv import load_dotenv
 import functools
 import sys
@@ -63,26 +63,26 @@ def process_file(file_path):
     start_time = time.time()
     try:
         message = f"📖 Traitement de {file_path}"
-        print(message)  # Affiche dans la console
-        with pdfplumber.open(file_path) as pdf:
-            matches = []
-            for page in pdf.pages:
-                found_matches = page.search(
-                    PATTERN.pattern,
-                    regex=True,
-                    case=False,
-                    layout=False
-                )
-                if found_matches:
-                    for match in found_matches:
-                        matches.append(match["text"])
+        print(message)
+
+        doc = fitz.open(file_path)
+        matches = []
+
+        for page in doc:
+            text = page.get_text()
+            found_matches = PATTERN.findall(text)
+            if found_matches:
+                matches.extend(found_matches)
+
+        doc.close()
+
         duration = time.time() - start_time
-        message = f"⏱️ {os.path.basename(file_path)} traité en {duration:.2f}s ({len(pdf.pages)} pages) - {len(matches)} matches"
-        print(message)  # Affiche dans la console
-        return file_path, matches, [message]  # Retourne aussi les messages pour les logs
+        message = f"⏱️ {os.path.basename(file_path)} traité en {duration:.2f}s ({len(doc)} pages) - {len(matches)} matches"
+        print(message)
+        return file_path, matches, [message]
     except Exception as e:
         message = f"⚠️ Erreur sur {file_path}: {e}"
-        print(message)  # Affiche dans la console
+        print(message)
         return file_path, [], [message]
 
 def main():
@@ -99,10 +99,9 @@ def main():
 
         for batch in find_pdf_files_in_batches(MAX_FILES):
             batch_count += 1
-            LOG_FILE = os.path.join(OUTPUT_DIR, f"logs_batch_{batch_count}_offset_{OFFSET}.txt")  # Un fichier de log par batch
+            LOG_FILE = os.path.join(OUTPUT_DIR, f"logs_batch_{batch_count}_offset_{OFFSET}.txt")
             batch_start_time = datetime.now()
 
-            # Ouverture du fichier de log pour ce batch
             with open(LOG_FILE, 'w', encoding='utf-8') as log_file:
                 log(f"📦 Lot {batch_count} ({len(batch)} fichiers) - Début à {batch_start_time.strftime('%H:%M:%S')}", log_file=log_file)
 
@@ -114,7 +113,7 @@ def main():
                     for future in as_completed(futures):
                         file_path, matches, messages = future.result()
                         for msg in messages:
-                            log(msg, log_file=log_file)  # Écrit dans le fichier de log du batch
+                            log(msg, log_file=log_file)
                         if matches:
                             total_matches += len(matches)
                             for match in matches:
