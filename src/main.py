@@ -127,7 +127,7 @@ def main():
                 log(f"📦 Lot {batch_count} (ID: {RUN_ID}) - Début à {datetime.now().strftime('%H:%M:%S')}", log_file=log_file)
 
                 futures = []
-                with ThreadPoolExecutor(max_workers=4) as executor:
+                with ThreadPoolExecutor(max_workers=int(os.getenv("MAX_WORKERS", "4")) as executor:
                     for file in batch:
                         futures.append(executor.submit(process_file, file))
 

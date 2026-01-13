@@ -14,3 +14,4 @@ services:
     environment:
       - MAX_FILES=${MAX_FILES}
       - OFFSET=${OFFSET}
+      - MAX_WORKERS=${MAX_WORKERS}
