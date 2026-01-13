@@ -5,7 +5,7 @@ services:
     mem_limit: ${MEM_LIMIT}
     memswap_limit: ${MEM_LIMIT}
     cpus: ${CPU_LIMIT}
-    restart: no
+    restart: 'no'
     volumes:
       - "${DATA_PATH}:/starstock"
       - "${OUTPUT_PATH}:/output"

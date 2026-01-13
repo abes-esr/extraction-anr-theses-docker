@@ -21,10 +21,9 @@ OFFSET = int(os.getenv("OFFSET", "0"))
 ROOT_DIR = "/starstock"
 PATTERN = re.compile(r"ANR-(?:\d{2}-)?[A-Za-z0-9]{4,8}(?:-\d{1,4})?\b")
 OUTPUT_DIR = "/output"
-CSV_FILE = os.path.join(OUTPUT_DIR, f"results_{OFFSET}_to_{OFFSET + MAX_FILES}.csv")
-
 # Génère un identifiant unique pour cette exécution
 RUN_ID = str(uuid.uuid4())[:8]
+CSV_FILE = os.path.join(OUTPUT_DIR, f"results_{OFFSET}_to_{OFFSET + MAX_FILES}_{RUN_ID}.csv")
 
 def log(message, log_file=None):
     """Écrit un message dans les logs (console + fichier spécifique)."""
@@ -78,24 +77,36 @@ def process_file(file_path):
 
         matches = []
 
-        for page in doc:
-            text = page.get_text()
-            found_matches = PATTERN.findall(text)
-            if found_matches:
-                matches.extend(found_matches)
-
-        doc.close()
+        for page_num in range(len(doc)):
+            try:
+                page = doc.load_page(page_num)
+                text = page.get_text()
+                found_matches = PATTERN.findall(text)
+                if found_matches:
+                    matches.extend(found_matches)
+            except Exception as e:
+                print(f"[DEBUG] Erreur sur la page {page_num} de {file_path}: {str(e)}")
+                continue
 
         duration = time.time() - start_time
         message = f"⏱️ {os.path.basename(file_path)} traité en {duration:.2f}s ({len(doc)} pages) - {len(matches)} matches"
         print(message)
         return file_path, matches, [message]
     except Exception as e:
-        message = f"⚠️ Erreur sur {file_path}: {e}"
+        message = f"⚠️  Erreur sur {file_path}: {e}"
         print(message)
         return file_path, [], [message]
+    finally:
+        doc.close()
 
 def main():
+    if not os.path.exists("/starstock"):
+        print(f"[ERREUR] Le répertoire /starstock n'est pas monté ou inaccessible.")
+        return
+
+    if not os.listdir("/starstock"):
+        print(f"[AVERTISSEMENT] /starstock est vide ou ne contient pas de sous-répertoires.")
+
     script_start_time = datetime.now()
     print(f"[{script_start_time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 Début du script (ID: {RUN_ID})")
 
@@ -113,7 +124,7 @@ def main():
             batch_start_time = datetime.now()
 
             with open(LOG_FILE, 'w', encoding='utf-8') as log_file:
-                log(f"📦 Lot {batch_count} (ID: {RUN_ID}) - Début à {batch_start_time.strftime('%H:%M:%S')}", log_file=log_file)
+                log(f"📦 Lot {batch_count} (ID: {RUN_ID}) - Début à {datetime.now().strftime('%H:%M:%S')}", log_file=log_file)
 
                 futures = []
                 with ThreadPoolExecutor(max_workers=4) as executor:
@@ -124,10 +135,12 @@ def main():
                         file_path, matches, messages = future.result()
                         for msg in messages:
                             log(msg, log_file=log_file)
+
+                        # Écrit les résultats dans le CSV immédiatement après chaque fichier
                         if matches:
-                            total_matches += len(matches)
                             for match in matches:
                                 writer.writerow([file_path, match])
+                            total_matches += len(matches)
 
                 batch_end_time = datetime.now()
                 batch_duration = (batch_end_time - batch_start_time).total_seconds()
