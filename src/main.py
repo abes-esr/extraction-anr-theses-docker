@@ -4,6 +4,7 @@ import re
 import csv
 import time
 import uuid
+import threading  # Ajout pour le verrou
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pymupdf
@@ -25,13 +26,16 @@ OUTPUT_DIR = "/output"
 RUN_ID = str(uuid.uuid4())[:8]
 CSV_FILE = os.path.join(OUTPUT_DIR, f"results_{OFFSET}_to_{OFFSET + MAX_FILES}_{RUN_ID}.csv")
 
+# Créer un verrou pour l'écriture dans le CSV
+csv_writer_lock = threading.Lock()
+
 def log(message, log_file=None):
     """Écrit un message dans les logs (console + fichier spécifique)."""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     formatted_message = f"[{timestamp}] {message}"
-    print(formatted_message)  # Affiche toujours dans la console
+    print(formatted_message)
     if log_file:
-        log_file.write(formatted_message + "\n")  # Écrit dans le fichier de log du batch
+        log_file.write(formatted_message + "\n")
 
 def find_pdf_files_in_batches(batch_size):
     """Génère des lots de fichiers PDF depuis /starstock/*/THESE_*/document/0/0/"""
@@ -113,6 +117,7 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     total_matches = 0
 
+    # Ouvre le fichier CSV une fois pour toute la durée du script
     with open(CSV_FILE, 'w', newline='', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["file", "match"])
@@ -136,10 +141,11 @@ def main():
                         for msg in messages:
                             log(msg, log_file=log_file)
 
-                        # Écrit les résultats dans le CSV immédiatement après chaque fichier
+                        # Écrit les résultats dans le CSV avec un verrou
                         if matches:
-                            for match in matches:
-                                writer.writerow([file_path, match])
+                            with csv_writer_lock:
+                                for match in matches:
+                                    writer.writerow([file_path, match])
                             total_matches += len(matches)
 
                 batch_end_time = datetime.now()
