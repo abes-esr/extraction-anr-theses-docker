@@ -145,6 +145,7 @@ def main():
                         if matches:
                             with csv_writer_lock:
                                 for match in matches:
+                                    log(f"match : écriture de la ligne : {file_path}, {match}, log_file=log_file")
                                     writer.writerow([file_path, match])
                             total_matches += len(matches)
 
