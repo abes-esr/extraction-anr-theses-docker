@@ -3,9 +3,10 @@ import os
 import re
 import csv
 import time
+import uuid
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import fitz  # PyMuPDF
+import pymupdf
 from dotenv import load_dotenv
 import functools
 import sys
@@ -21,6 +22,9 @@ ROOT_DIR = "/starstock"
 PATTERN = re.compile(r"ANR-(?:\d{2}-)?[A-Za-z0-9]{4,8}(?:-\d{1,4})?\b")
 OUTPUT_DIR = "/output"
 CSV_FILE = os.path.join(OUTPUT_DIR, f"results_{OFFSET}_to_{OFFSET + MAX_FILES}.csv")
+
+# Génère un identifiant unique pour cette exécution
+RUN_ID = str(uuid.uuid4())[:8]
 
 def log(message, log_file=None):
     """Écrit un message dans les logs (console + fichier spécifique)."""
@@ -65,7 +69,7 @@ def process_file(file_path):
         message = f"📖 Traitement de {file_path}"
         print(message)
 
-        doc = fitz.open(file_path)
+        doc = pymupdf.open(file_path)
         matches = []
 
         for page in doc:
@@ -87,7 +91,7 @@ def process_file(file_path):
 
 def main():
     script_start_time = datetime.now()
-    print(f"[{script_start_time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 Début du script")
+    print(f"[{script_start_time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 Début du script (ID: {RUN_ID})")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     total_matches = 0
@@ -99,11 +103,11 @@ def main():
 
         for batch in find_pdf_files_in_batches(MAX_FILES):
             batch_count += 1
-            LOG_FILE = os.path.join(OUTPUT_DIR, f"logs_batch_{batch_count}_offset_{OFFSET}.txt")
+            LOG_FILE = os.path.join(OUTPUT_DIR, f"batch_{batch_count}_offset_{OFFSET}_{RUN_ID}.log")
             batch_start_time = datetime.now()
 
             with open(LOG_FILE, 'w', encoding='utf-8') as log_file:
-                log(f"📦 Lot {batch_count} ({len(batch)} fichiers) - Début à {batch_start_time.strftime('%H:%M:%S')}", log_file=log_file)
+                log(f"📦 Lot {batch_count} (ID: {RUN_ID}) - Début à {batch_start_time.strftime('%H:%M:%S')}", log_file=log_file)
 
                 futures = []
                 with ThreadPoolExecutor(max_workers=4) as executor:
@@ -125,7 +129,7 @@ def main():
 
     script_end_time = datetime.now()
     script_duration = (script_end_time - script_start_time).total_seconds()
-    print(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] 🎉 Script terminé")
+    print(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] 🎉 Script terminé (ID: {RUN_ID})")
     print(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] ⏳ Durée totale: {script_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}")
 
     if len(batch) == MAX_FILES:
