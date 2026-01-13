@@ -43,7 +43,7 @@ def find_pdf_files_in_batches(batch_size):
                 if (len(parts) >= 4 and
                         parts[0].startswith("THESE_") and
                         parts[1] == "document" and
-                        parts[2] == "0") and
+                        parts[2] == "0" and
                         parts[3] == "0"):
 
                     for file in files:
