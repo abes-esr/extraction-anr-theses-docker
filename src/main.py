@@ -118,7 +118,7 @@ def main():
     total_matches = 0
 
     # Ouvre le fichier CSV une fois pour toute la durée du script
-    with open(CSV_FILE, 'w', newline='', encoding='utf-8') as csvfile:
+    with open(CSV_FILE, 'w', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["file", "match"])
 
@@ -140,7 +140,7 @@ def main():
                         file_path, matches, messages = future.result()
                         for msg in messages:
                             log(msg, log_file=log_file)
-
+#TODO exclure les mots comme annexe, corpus, glossaire, Lexique etc
                         # Écrit les résultats dans le CSV avec un verrou
                         if matches:
                             with csv_writer_lock:
@@ -155,11 +155,11 @@ def main():
 
     script_end_time = datetime.now()
     script_duration = (script_end_time - script_start_time).total_seconds()
-    print(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] 🎉 Script terminé (ID: {RUN_ID})")
-    print(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] ⏳ Durée totale: {script_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}")
+    log(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] 🎉 Script terminé (ID: {RUN_ID})", log_file=log_file)
+    log(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] ⏳ Durée totale: {script_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}", log_file=log_file)
 
     if len(batch) == MAX_FILES:
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Relancez avec OFFSET={OFFSET + MAX_FILES} pour continuer.")
+        log(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Relancez avec OFFSET={OFFSET + MAX_FILES} pour continuer.", log_file=log_file)
 
 if __name__ == "__main__":
     main()
