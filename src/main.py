@@ -19,6 +19,7 @@ load_dotenv()
 # Variables d'environnement
 MAX_FILES = int(os.getenv("MAX_FILES", "1000"))
 OFFSET = int(os.getenv("OFFSET", "0"))
+NB_PAGES = int(os.getenv("NB_PAGES", "0"))  # 0 = toutes les pages
 ROOT_DIR = "/starstock"
 PATTERN = re.compile(r"ANR-(?:\d{2}-)?[A-Za-z0-9]{4,8}(?:-\d{1,4})?\b")
 OUTPUT_DIR = "/output"
@@ -28,6 +29,7 @@ RUN_ID = str(uuid.uuid4())[:8]
 # Créer un verrou pour l'écriture dans le CSV
 csv_writer_lock = threading.Lock()
 
+
 def log(message, log_file=None):
     """Écrit un message dans les logs (console + fichier spécifique)."""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -35,6 +37,7 @@ def log(message, log_file=None):
     print(formatted_message)
     if log_file:
         log_file.write(formatted_message + "\n")
+
 
 def find_pdf_files_in_batches(batch_size):
     """Génère des lots de fichiers PDF depuis /starstock/*/THESE_*/document/0/0/"""
@@ -65,6 +68,7 @@ def find_pdf_files_in_batches(batch_size):
     if pdf_files:  # Dernier lot
         yield pdf_files
 
+
 def process_file(file_path, file_count):
     start_time = time.time()
     try:
@@ -79,8 +83,10 @@ def process_file(file_path, file_count):
             return file_path, [], [message]
 
         matches = []
+        # Limite le nombre de pages à analyser si NB_PAGES > 0
+        pages_nb_to_scan = min(len(doc), NB_PAGES) if NB_PAGES > 0 else len(doc)
 
-        for page_num in range(len(doc)):
+        for page_num in range(pages_nb_to_scan):
             try:
                 page = doc.load_page(page_num)
                 text = page.get_text()
@@ -92,7 +98,7 @@ def process_file(file_path, file_count):
                 continue
 
         duration = time.time() - start_time
-        message = f"⏱️  n°{file_count} {file_path} traité en {duration:.2f}s ({len(doc)} pages) - {len(matches)} matches"
+        message = f"⏱️  n°{file_count} {file_path} traité en {duration:.2f}s ({pages_nb_to_scan}/{len(doc)} pages) - {len(matches)} matches"
         print(message)
         return file_path, matches, [message]
     except Exception as e:
@@ -101,6 +107,7 @@ def process_file(file_path, file_count):
         return file_path, [], [message]
     finally:
         doc.close()
+
 
 def main():
     if not os.path.exists("/starstock"):
@@ -140,26 +147,30 @@ def main():
                         file_path, matches, messages = future.result()
                         for msg in messages:
                             log(msg, log_file=log_file)
-#TODO exclure les mots comme annexe, corpus, glossaire, Lexique etc
+
                         # Écrit les résultats dans le CSV avec un verrou
                         if matches:
                             with csv_writer_lock:
                                 for match in matches:
-                                    log(f"match : écriture de la ligne : {file_path}, {match}, log_file=log_file")
+                                    log(f"match : écriture de la ligne : {file_path}, {match}", log_file=log_file)
                                     writer.writerow([file_path, match])
                             total_matches += len(matches)
 
                 batch_end_time = datetime.now()
                 batch_duration = (batch_end_time - batch_start_time).total_seconds()
-                log(f"⏱️ Lot terminé à {batch_end_time.strftime('%H:%M:%S')} (durée: {batch_duration:.2f} secondes)", log_file=log_file)
+                log(f"⏱️ Lot terminé à {batch_end_time.strftime('%H:%M:%S')} (durée: {batch_duration:.2f} secondes)",
+                    log_file=log_file)
 
-    script_end_time = datetime.now()
-    script_duration = (script_end_time - script_start_time).total_seconds()
-    log(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] 🎉 Script terminé (ID: {RUN_ID})", log_file=log_file)
-    log(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] ⏳ Durée totale: {script_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}", log_file=log_file)
+                script_end_time = datetime.now()
+                script_duration = (script_end_time - script_start_time).total_seconds()
+                log(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] 🎉 Script terminé (ID: {RUN_ID})", log_file=log_file)
+                log(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] ⏳ Durée totale: {script_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}",
+                    log_file=log_file)
 
-    if len(batch) == MAX_FILES:
-        log(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Relancez avec OFFSET={OFFSET + MAX_FILES} pour continuer.", log_file=log_file)
+                if len(batch) == MAX_FILES:
+                    log(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Relancez avec OFFSET={OFFSET + MAX_FILES} pour continuer.",
+                        log_file=log_file)
+
 
 if __name__ == "__main__":
     main()
