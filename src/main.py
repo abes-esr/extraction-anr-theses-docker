@@ -4,7 +4,7 @@ import re
 import csv
 import time
 import uuid
-import threading  # Ajout pour le verrou
+import threading
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pymupdf
@@ -23,22 +23,22 @@ NB_PAGES = int(os.getenv("NB_PAGES", "0"))  # 0 = toutes les pages
 ROOT_DIR = "/starstock"
 PATTERN = re.compile(r"ANR-(?:\d{2}-)?[A-Za-z0-9]{4,8}(?:-\d{1,4})?\b")
 OUTPUT_DIR = "/output"
-# Génère un identifiant unique pour cette exécution
 RUN_ID = str(uuid.uuid4())[:8]
 DATE_NAME = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
 
-# Créer un verrou pour l'écriture dans le CSV
+# Verrous pour l'écriture thread-safe
 csv_writer_lock = threading.Lock()
-
+log_writer_lock = threading.Lock()
 
 def log(message, log_file=None):
-    """Écrit un message dans les logs (console + fichier spécifique)."""
+    """Écrit un message dans les logs (console + fichier) avec verrou."""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     formatted_message = f"[{timestamp}] {message}"
     print(formatted_message)
     if log_file:
-        log_file.write(formatted_message + "\n")
-
+        with log_writer_lock:  # Verrou pour l'écriture
+            log_file.write(formatted_message + "\n")
+            log_file.flush()  # Force l'écriture
 
 def find_pdf_files_in_batches(batch_size):
     """Génère des lots de fichiers PDF depuis /starstock/*/THESE_*/document/0/0/"""
@@ -123,55 +123,63 @@ def main():
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     CSV_FILE = os.path.join(OUTPUT_DIR, f"{DATE_NAME}_results_{OFFSET}_to_{OFFSET + MAX_FILES}.csv")
+    LOG_FILE = os.path.join(OUTPUT_DIR, f"{DATE_NAME}_batch_{OFFSET}_to_{OFFSET + MAX_FILES}.log")
     total_matches = 0
 
-    # Ouvre le fichier CSV une fois pour toute la durée du script
-    with open(CSV_FILE, 'w', encoding='utf-8') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(["file", "match"])
+    # Ouvre les fichiers une fois pour toute la durée du script
+    csvfile = open(CSV_FILE, 'w', newline='', encoding='utf-8')
+    log_file = open(LOG_FILE, 'w', encoding='utf-8')
+
+    try:
+        # Écrit l'en-tête du CSV avec verrou
+        with csv_writer_lock:
+            writer = csv.writer(csvfile)
+            writer.writerow(["file", "match"])
+            csvfile.flush()  # Force l'écriture
+
+        log(f"📦 Début du script (ID: {RUN_ID})", log_file=log_file)
 
         for batch in find_pdf_files_in_batches(MAX_FILES):
-            LOG_FILE = os.path.join(OUTPUT_DIR, f"{DATE_NAME}_batch_{OFFSET}_to_{OFFSET + MAX_FILES}.log")
             batch_start_time = datetime.now()
             file_count = 0
 
-            with open(LOG_FILE, 'w', encoding='utf-8') as log_file:
-                log(f"📦 Lot (ID: {RUN_ID}) - Début à {datetime.now().strftime('%H:%M:%S')}", log_file=log_file)
+            log(f"📦 Lot - Début à {datetime.now().strftime('%H:%M:%S')}", log_file=log_file)
 
-                futures = []
-                with ThreadPoolExecutor(max_workers=int(os.getenv("MAX_WORKERS", "4"))) as executor:
-                    for file in batch:
-                        file_count += 1
-                        futures.append(executor.submit(process_file, file, file_count))
+            futures = []
+            with ThreadPoolExecutor(max_workers=int(os.getenv("MAX_WORKERS", "4"))) as executor:
+                for file in batch:
+                    file_count += 1
+                    futures.append(executor.submit(process_file, file, file_count))
 
-                    for future in as_completed(futures):
-                        file_path, matches, messages = future.result()
-                        for msg in messages:
-                            log(msg, log_file=log_file)
+                for future in as_completed(futures):
+                    file_path, matches, messages = future.result()
+                    for msg in messages:
+                        log(msg, log_file=log_file)
 
-                        # Écrit les résultats dans le CSV avec un verrou
-                        if matches:
-                            with csv_writer_lock:
-                                for match in matches:
-                                    log(f"match : écriture de la ligne : {file_path}, {match}", log_file=log_file)
-                                    writer.writerow([file_path, match])
-                            total_matches += len(matches)
+                    if matches:
+                        with csv_writer_lock:
+                            writer = csv.writer(csvfile)
+                            for match in matches:
+                                writer.writerow([file_path, match])
+                            csvfile.flush()  # Force l'écriture
+                        total_matches += len(matches)
 
-                batch_end_time = datetime.now()
-                batch_duration = (batch_end_time - batch_start_time).total_seconds()
-                log(f"⏱️ Lot terminé à {batch_end_time.strftime('%H:%M:%S')} (durée: {batch_duration:.2f} secondes)",
-                    log_file=log_file)
+            batch_end_time = datetime.now()
+            batch_duration = (batch_end_time - batch_start_time).total_seconds()
+            log(f"⏱️ Lot terminé à {batch_end_time.strftime('%H:%M:%S')} (durée: {batch_duration:.2f} secondes)", log_file=log_file)
 
-                script_end_time = datetime.now()
-                script_duration = (script_end_time - script_start_time).total_seconds()
-                log(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] 🎉 Script terminé (ID: {RUN_ID})", log_file=log_file)
-                log(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] ⏳ Durée totale: {script_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}",
-                    log_file=log_file)
+        script_end_time = datetime.now()
+        script_duration = (script_end_time - script_start_time).total_seconds()
+        log(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] 🎉 Script terminé (ID: {RUN_ID})", log_file=log_file)
+        log(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] ⏳ Durée totale: {script_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}", log_file=log_file)
 
-                if len(batch) == MAX_FILES:
-                    log(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Relancez avec OFFSET={OFFSET + MAX_FILES} pour continuer.",
-                        log_file=log_file)
+        if len(batch) == MAX_FILES:
+            log(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Relancez avec OFFSET={OFFSET + MAX_FILES} pour continuer.", log_file=log_file)
 
+    finally:
+        csvfile.close()
+        log_file.close()
 
 if __name__ == "__main__":
     main()
+
