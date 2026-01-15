@@ -25,6 +25,7 @@ PATTERN = re.compile(r"ANR-(?:\d{2}-)?[A-Za-z0-9]{4,8}(?:-\d{1,4})?\b")
 OUTPUT_DIR = "/output"
 # Génère un identifiant unique pour cette exécution
 RUN_ID = str(uuid.uuid4())[:8]
+DATE_NAME = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
 
 # Créer un verrou pour l'écriture dans le CSV
 csv_writer_lock = threading.Lock()
@@ -121,7 +122,7 @@ def main():
     print(f"[{script_start_time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 Début du script (ID: {RUN_ID})")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    CSV_FILE = os.path.join(OUTPUT_DIR, f"results_{OFFSET}_to_{OFFSET + MAX_FILES}_{RUN_ID}.csv")
+    CSV_FILE = os.path.join(OUTPUT_DIR, f"{DATE_NAME}_results_{OFFSET}_to_{OFFSET + MAX_FILES}.csv")
     total_matches = 0
 
     # Ouvre le fichier CSV une fois pour toute la durée du script
@@ -130,7 +131,7 @@ def main():
         writer.writerow(["file", "match"])
 
         for batch in find_pdf_files_in_batches(MAX_FILES):
-            LOG_FILE = os.path.join(OUTPUT_DIR, f"batch_offset_{OFFSET}_{RUN_ID}.log")
+            LOG_FILE = os.path.join(OUTPUT_DIR, f"{DATE_NAME}_batch_{OFFSET}_to_{OFFSET + MAX_FILES}.log")
             batch_start_time = datetime.now()
             file_count = 0
 
