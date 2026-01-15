@@ -40,7 +40,7 @@ def log(message, log_file=None):
             log_file.write(formatted_message + "\n")
             log_file.flush()  # Force l'écriture
 
-def find_pdf_files_in_batches(batch_size):
+def find_pdf_files(batch_size):
     """Génère des lots de fichiers PDF depuis /starstock/*/THESE_*/document/0/0/"""
     pdf_files = []
     processed_files = 0
@@ -66,7 +66,7 @@ def find_pdf_files_in_batches(batch_size):
                                     pdf_files = []
                             processed_files += 1
 
-    if pdf_files:  # Dernier lot
+    if pdf_files:
         yield pdf_files
 
 
@@ -109,7 +109,6 @@ def process_file(file_path, file_count):
     finally:
         doc.close()
 
-
 def main():
     if not os.path.exists("/starstock"):
         print(f"[ERREUR] Le répertoire /starstock n'est pas monté ou inaccessible.")
@@ -119,7 +118,7 @@ def main():
         print(f"[AVERTISSEMENT] /starstock est vide ou ne contient pas de sous-répertoires.")
 
     script_start_time = datetime.now()
-    print(f"[{script_start_time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 Début du script (ID: {RUN_ID})")
+    print(f"[{script_start_time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 Début du batch (ID: {RUN_ID})")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     CSV_FILE = os.path.join(OUTPUT_DIR, f"{DATE_NAME}_results_{OFFSET}_to_{OFFSET + MAX_FILES}.csv")
@@ -137,45 +136,41 @@ def main():
             writer.writerow(["file", "match"])
             csvfile.flush()  # Force l'écriture
 
-        log(f"📦 Début du script (ID: {RUN_ID})", log_file=log_file)
+        log(f"📦 Début du batch (ID: {RUN_ID})", log_file=log_file)
 
-        for batch in find_pdf_files_in_batches(MAX_FILES):
-            batch_start_time = datetime.now()
+        # Récupère le batch unique
+        batch = next(find_pdf_files(MAX_FILES), [])
+        if not batch:
+            log(f"[INFO] Aucun fichier à traiter.", log_file=log_file)
+            return
+
+        batch_start_time = datetime.now()
+        log(f"📦 Début à {datetime.now().strftime('%H:%M:%S')}", log_file=log_file)
+
+        futures = []
+        with ThreadPoolExecutor(max_workers=int(os.getenv("MAX_WORKERS", "4"))) as executor:
             file_count = 0
+            for file in batch:
+                file_count += 1
+                futures.append(executor.submit(process_file, file, file_count))
 
-            log(f"📦 Lot - Début à {datetime.now().strftime('%H:%M:%S')}", log_file=log_file)
+            for future in as_completed(futures):
+                file_path, matches, messages = future.result()
+                for msg in messages:
+                    log(msg, log_file=log_file)
 
-            futures = []
-            with ThreadPoolExecutor(max_workers=int(os.getenv("MAX_WORKERS", "4"))) as executor:
-                for file in batch:
-                    file_count += 1
-                    futures.append(executor.submit(process_file, file, file_count))
+                if matches:
+                    with csv_writer_lock:
+                        writer = csv.writer(csvfile)
+                        for match in matches:
+                            writer.writerow([file_path, match])
+                        csvfile.flush()  # Force l'écriture
+                    total_matches += len(matches)
 
-                for future in as_completed(futures):
-                    file_path, matches, messages = future.result()
-                    for msg in messages:
-                        log(msg, log_file=log_file)
-
-                    if matches:
-                        with csv_writer_lock:
-                            writer = csv.writer(csvfile)
-                            for match in matches:
-                                writer.writerow([file_path, match])
-                            csvfile.flush()  # Force l'écriture
-                        total_matches += len(matches)
-
-            batch_end_time = datetime.now()
-            batch_duration = (batch_end_time - batch_start_time).total_seconds()
-            log(f"⏱️ Lot terminé à {batch_end_time.strftime('%H:%M:%S')} (durée: {batch_duration:.2f} secondes)", log_file=log_file)
-
-        script_end_time = datetime.now()
-        script_duration = (script_end_time - script_start_time).total_seconds()
-        log(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] 🎉 Script terminé (ID: {RUN_ID})", log_file=log_file)
-        log(f"[{script_end_time.strftime('%Y-%m-%d %H:%M:%S')}] ⏳ Durée totale: {script_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}", log_file=log_file)
-
-        if len(batch) == MAX_FILES:
-            log(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Relancez avec OFFSET={OFFSET + MAX_FILES} pour continuer.", log_file=log_file)
-
+        batch_end_time = datetime.now()
+        batch_duration = (batch_end_time - batch_start_time).total_seconds()
+        log(f"[{batch_end_time.strftime('%Y-%m-%d %H:%M:%S')}] 🎉 Lot terminé", log_file=log_file)
+        log(f"⏳ Durée totale: {batch_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}", log_file=log_file)
     finally:
         csvfile.close()
         log_file.close()
