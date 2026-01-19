@@ -36,6 +36,7 @@ EXCLUDE_KEYWORDS = [
 csv_writer_lock = threading.Lock()
 log_writer_lock = threading.Lock()
 
+
 def log(message, log_file=None):
     """Écrit un message dans les logs (console + fichier) avec verrou."""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -46,10 +47,11 @@ def log(message, log_file=None):
             log_file.write(formatted_message + "\n")
             log_file.flush()  # Force l'écriture
 
+
 def find_pdf_files(batch_size):
     """Génère des lots de fichiers PDF depuis /starstock/*/THESE_*/document/0/0/"""
     pdf_files = []
-    processed_files = 0
+    all_eligible_files = []
 
     for entry in os.scandir(ROOT_DIR):
         if entry.is_dir():
@@ -64,18 +66,18 @@ def find_pdf_files(batch_size):
 
                     for file in files:
                         if file.lower().endswith('.pdf'):
-                            # Vérifie si le nom du fichier contient un mot-clé à exclure
                             file_lower = file.lower()
-                            if any(keyword in file_lower for keyword in EXCLUDE_KEYWORDS):
-                                continue
+                            if not any(keyword in file_lower for keyword in EXCLUDE_KEYWORDS):
+                                all_eligible_files.append(os.path.join(root, file))
 
-                            full_path = os.path.join(root, file)
-                            if processed_files >= OFFSET:
-                                pdf_files.append(full_path)
-                                if len(pdf_files) >= batch_size:
-                                    yield pdf_files
-                                    pdf_files = []
-                            processed_files += 1
+                    all_eligible_files.sort()
+
+                    pdf_files = []
+                    for full_path in all_eligible_files[OFFSET:OFFSET + batch_size]:
+                        pdf_files.append(full_path)
+                        if len(pdf_files) >= batch_size:
+                            yield pdf_files
+                            pdf_files = []
 
     if pdf_files:
         yield pdf_files
@@ -110,7 +112,8 @@ def process_file(file_path, file_count):
                 continue
 
         duration = time.time() - start_time
-        message = f"⏱️  n°{file_count} {file_path} traité en {duration:.2f}s ({pages_nb_to_scan}/{len(doc)} pages) - {len(matches)} matches"
+        absolute_file_number = file_count + OFFSET
+        message = f"⏱️  n°{file_count} (n°{absolute_file_number}abs.) {file_path} traité en {duration:.2f}s ({pages_nb_to_scan}/{len(doc)} pages) - {len(matches)} matches"
         print(message)
         return file_path, matches, [message]
     except Exception as e:
@@ -119,6 +122,7 @@ def process_file(file_path, file_count):
         return file_path, [], [message]
     finally:
         doc.close()
+
 
 def main():
     if not os.path.exists("/starstock"):
@@ -181,15 +185,12 @@ def main():
         batch_end_time = datetime.now()
         batch_duration = (batch_end_time - batch_start_time).total_seconds()
         log(f"[{batch_end_time.strftime('%Y-%m-%d %H:%M:%S')}] 🎉 Lot terminé", log_file=log_file)
-        log(f"⏳ Durée totale: {batch_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}", log_file=log_file)
+        log(f"⏳ Durée totale: {batch_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}",
+            log_file=log_file)
     finally:
         csvfile.close()
         log_file.close()
 
+
 if __name__ == "__main__":
     main()
-
-# TODO la premiere ligne ne s'écrit même pas
-#TODO voir avec OCN ou Yann pour savoir comment discriminer les thèses des annexes
-#TODO exclure les mots comme annexe, corpus, glossaire, Lexique etc
-#TODO voir l62 traitement_lst_th_good.py
