@@ -25,7 +25,13 @@ PATTERN = re.compile(r"ANR-(?:\d{2}-)?[A-Za-z0-9]{4,8}(?:-\d{1,4})?\b")
 OUTPUT_DIR = "/output"
 RUN_ID = str(uuid.uuid4())[:8]
 DATE_NAME = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-
+# Liste des mots-clés à exclure des noms de fichiers (insensible à la casse)
+EXCLUDE_KEYWORDS = [
+    'annexe', 'resume', 'résumé', 'abstract', 'errata', 'summary', 'erratum',
+    'annexes', 'appendix', 'appendices', 'titre', 'couverture', 'couv',
+    'cover', 'synthese', 'synthèse', 'glossaire', 'illustr', 'diff', 'image',
+    'table', 'sommaire', 'remerciement', 'garde', 'planche', 'annnexe', 'annex_'
+]
 # Verrous pour l'écriture thread-safe
 csv_writer_lock = threading.Lock()
 log_writer_lock = threading.Lock()
@@ -58,6 +64,11 @@ def find_pdf_files(batch_size):
 
                     for file in files:
                         if file.lower().endswith('.pdf'):
+                            # Vérifie si le nom du fichier contient un mot-clé à exclure
+                            file_lower = file.lower()
+                            if any(keyword in file_lower for keyword in EXCLUDE_KEYWORDS):
+                                continue
+
                             full_path = os.path.join(root, file)
                             if processed_files >= OFFSET:
                                 pdf_files.append(full_path)
@@ -178,3 +189,7 @@ def main():
 if __name__ == "__main__":
     main()
 
+# TODO la premiere ligne ne s'écrit même pas
+#TODO voir avec OCN ou Yann pour savoir comment discriminer les thèses des annexes
+#TODO exclure les mots comme annexe, corpus, glossaire, Lexique etc
+#TODO voir l62 traitement_lst_th_good.py
