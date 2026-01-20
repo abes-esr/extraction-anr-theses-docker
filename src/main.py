@@ -25,6 +25,10 @@ PATTERN = re.compile(r"ANR-(?:\d{2}-)?[A-Za-z0-9]{4,8}(?:-\d{1,4})?\b")
 OUTPUT_DIR = "/output"
 RUN_ID = str(uuid.uuid4())[:8]
 DATE_NAME = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+
+LOG_FILE = os.path.join(OUTPUT_DIR, f"{DATE_NAME}_batch_{OFFSET}_to_{OFFSET + MAX_FILES}.log")
+log_file = open(LOG_FILE, 'w', encoding='utf-8')
+
 # Liste des mots-clés à exclure des noms de fichiers (insensible à la casse)
 EXCLUDE_KEYWORDS = [
     'annexe', 'resume', 'résumé', 'abstract', 'errata', 'summary', 'erratum',
@@ -87,13 +91,13 @@ def process_file(file_path, file_count):
     start_time = time.time()
     try:
         message = f"📖 Traitement de {file_path}"
-        print(message)
+        log(message, log_file)
 
         try:
             doc = pymupdf.open(file_path)
         except Exception as e:
             message = f"⚠️ Impossible d'ouvrir {file_path}: {str(e)}"
-            print(message)
+            log(message, log_file)
             return file_path, [], [message]
 
         matches = []
@@ -108,41 +112,38 @@ def process_file(file_path, file_count):
                 if found_matches:
                     matches.extend(found_matches)
             except Exception as e:
-                print(f"[DEBUG] Erreur sur la page {page_num} de {file_path}: {str(e)}")
+                log(f"[DEBUG] Erreur sur la page {page_num} de {file_path}: {str(e)}", log_file)
                 continue
 
         duration = time.time() - start_time
         absolute_file_number = file_count + OFFSET
         message = f"⏱️  n°{file_count} (n°{absolute_file_number}abs.) {file_path} traité en {duration:.2f}s ({pages_nb_to_scan}/{len(doc)} pages) - {len(matches)} matches"
-        print(message)
+        log(message, log_file)
         return file_path, matches, [message]
     except Exception as e:
         message = f"⚠️  Erreur sur {file_path}: {e}"
-        print(message)
+        log(message, log_file)
         return file_path, [], [message]
     finally:
         doc.close()
 
 
 def main():
+    CSV_FILE = os.path.join(OUTPUT_DIR, f"{DATE_NAME}_results_{OFFSET}_to_{OFFSET + MAX_FILES}.csv")
+    csvfile = open(CSV_FILE, 'w', newline='', encoding='utf-8')
+
     if not os.path.exists("/starstock"):
-        print(f"[ERREUR] Le répertoire /starstock n'est pas monté ou inaccessible.")
+        log(f"[ERREUR] Le répertoire /starstock n'est pas monté ou inaccessible.", log_file)
         return
 
     if not os.listdir("/starstock"):
-        print(f"[AVERTISSEMENT] /starstock est vide ou ne contient pas de sous-répertoires.")
+        log(f"[AVERTISSEMENT] /starstock est vide ou ne contient pas de sous-répertoires.", log_file)
 
     script_start_time = datetime.now()
     print(f"[{script_start_time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 Début du batch (ID: {RUN_ID})")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    CSV_FILE = os.path.join(OUTPUT_DIR, f"{DATE_NAME}_results_{OFFSET}_to_{OFFSET + MAX_FILES}.csv")
-    LOG_FILE = os.path.join(OUTPUT_DIR, f"{DATE_NAME}_batch_{OFFSET}_to_{OFFSET + MAX_FILES}.log")
     total_matches = 0
-
-    # Ouvre les fichiers une fois pour toute la durée du script
-    csvfile = open(CSV_FILE, 'w', newline='', encoding='utf-8')
-    log_file = open(LOG_FILE, 'w', encoding='utf-8')
 
     try:
         # Écrit l'en-tête du CSV avec verrou
@@ -171,8 +172,6 @@ def main():
 
             for future in as_completed(futures):
                 file_path, matches, messages = future.result()
-                for msg in messages:
-                    log(msg, log_file=log_file)
 
                 if matches:
                     with csv_writer_lock:
