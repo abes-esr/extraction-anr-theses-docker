@@ -55,52 +55,56 @@ def log(message, log_file=None):
 
 
 def find_pdf_files():
-    """Génère des chunks de fichiers PDF triés par sous-répertoire, puis par nom de fichier, en s'arrêtant à OFFSET + MAX_FILES."""
+    """Génère des chunks de fichiers PDF triés alphanumériquement par /starstock/ puis THESE_*, avec arrêt anticipé."""
     all_eligible_files = []
     log(f"🔍 Début du scan des fichiers PDF (offset={OFFSET}, max={MAX_FILES})", log_file)
-    max_needed = OFFSET + MAX_FILES  # Nombre maximal de fichiers nécessaires à l'élaboration de la liste à traiter
+    max_needed = OFFSET + MAX_FILES  # Nombre maximal de fichiers nécessaires
 
     start_time = time.time()
-    for i, entry in enumerate(os.scandir(ROOT_DIR)):
+
+    # Tri alphanumérique des dossiers dans /starstock/
+    for i, entry in enumerate(sorted(os.scandir(ROOT_DIR), key=lambda e: e.name)):
         if not entry.is_dir():
             continue
         log(f"📁 [{i+1}] Exploration du répertoire : {entry.path}", log_file)
         subdir_start_time = time.time()
 
-        for root, dirs, files in os.walk(entry.path, followlinks=False):
-            rel_path = os.path.relpath(root, entry.path)
-            parts = rel_path.split(os.sep)
+        # Tri alphanumérique des sous-dossiers THESE_*
+        for these_dir in sorted(os.scandir(entry.path), key=lambda e: e.name):
+            if not these_dir.is_dir() or not these_dir.name.startswith("THESE_"):
+                continue
 
-            if len(parts) >= 4 and\
-                    parts[0].startswith("THESE_") and\
-                    parts[1] == "document" and\
-                    parts[2] == "0" and\
-                    parts[3] == "0":
-                log(f"📂 Trouvé structure valide : {os.path.join(entry.path, rel_path)}", log_file)
-                pdf_count = 0
-                for file in sorted(files):  # Tri alphabétique local
-                    if file.lower().endswith('.pdf'):
-                        file_lower = file.lower()
-                        if not any(keyword in file_lower for keyword in EXCLUDE_KEYWORDS):
-                            full_path = os.path.join(root, file)
-                            all_eligible_files.append(full_path)
-                            pdf_count += 1
+            these_path = os.path.join(these_dir.path, "document", "0", "0")
+            if not os.path.exists(these_path):
+                continue
 
-                            # Arrêt si on a assez de fichiers
-                            if len(all_eligible_files) >= max_needed:
-                                break  # Sort de la boucle de fichiers
+            # Tri alphanumérique des fichiers PDF
+            try:
+                files = sorted(os.listdir(these_path), key=lambda f: f.lower())
+            except FileNotFoundError:
+                continue
 
-                if pdf_count > 0:
-                    log(f"📄 {pdf_count} fichiers PDF éligibles trouvés dans {os.path.join(entry.path, rel_path)}", log_file)
+            pdf_count = 0
+            for file in files:
+                if file.lower().endswith('.pdf'):
+                    file_lower = file.lower()
+                    if not any(keyword in file_lower for keyword in EXCLUDE_KEYWORDS):
+                        full_path = os.path.join(these_path, file)
+                        all_eligible_files.append(full_path)
+                        pdf_count += 1
 
-                if len(all_eligible_files) >= max_needed:
-                    break  # Sort de la boucle os.walk
+                        # Arrêt si on a assez de fichiers
+                        if len(all_eligible_files) >= max_needed:
+                            break
+
+            if pdf_count > 0:
+                log(f"📄 {pdf_count} fichiers PDF éligibles trouvés dans {these_path}", log_file)
 
         subdir_duration = time.time() - subdir_start_time
         log(f"⏱️ Répertoire {entry.path} scanné en {subdir_duration:.2f}s", log_file)
 
         if len(all_eligible_files) >= max_needed:
-            break  # Sort de la boucle des répertoires
+            break
 
     total_eligible = len(all_eligible_files)
     log(f"📊 {total_eligible} fichiers PDF éligibles trouvés (après offset)", log_file)
