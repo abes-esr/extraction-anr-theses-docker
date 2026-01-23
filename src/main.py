@@ -55,36 +55,62 @@ def log(message, log_file=None):
 
 
 def find_pdf_files(batch_size):
-    """Génère des lots de fichiers PDF depuis /starstock/*/THESE_*/document/0/0/"""
+    """Génère des lots de fichiers PDF depuis /starstock/*/THESE_*/document/0/0/ avec logs de suivi."""
     pdf_files = []
     all_eligible_files = []
+    log(f"🔍 Début du scan des fichiers PDF (offset={OFFSET}, batch_size={batch_size})", log_file)
 
-    for entry in os.scandir(ROOT_DIR):
-        if entry.is_dir():
-            for root, dirs, files in os.walk(entry.path, followlinks=False):
-                rel_path = os.path.relpath(root, entry.path)
-                parts = rel_path.split(os.sep)
-                if (len(parts) >= 4 and
-                        parts[0].startswith("THESE_") and
-                        parts[1] == "document" and
-                        parts[2] == "0" and
-                        parts[3] == "0"):
-                    for file in files:
-                        if file.lower().endswith('.pdf'):
-                            file_lower = file.lower()
-                            if not any(keyword in file_lower for keyword in EXCLUDE_KEYWORDS):
-                                all_eligible_files.append(os.path.join(root, file))
+    start_time = time.time()
+    for i, entry in enumerate(os.scandir(ROOT_DIR)):
+        if not entry.is_dir():
+            continue
+        log(f"📁 [{i+1}] Exploration du répertoire : {entry.path}", log_file)
+        subdir_start_time = time.time()
 
+        for root, dirs, files in os.walk(entry.path, followlinks=False):
+            rel_path = os.path.relpath(root, entry.path)
+            parts = rel_path.split(os.sep)
+
+            if len(parts) >= 4 and\
+                    parts[0].startswith("THESE_") and\
+                    parts[1] == "document" and\
+                    parts[2] == "0" and\
+                    parts[3] == "0":
+                log(f"📂 Trouvé structure valide : {os.path.join(entry.path, rel_path)}", log_file)
+                pdf_count = 0
+                for file in files:
+                    if file.lower().endswith('.pdf'):
+                        file_lower = file.lower()
+                        if not any(keyword in file_lower for keyword in EXCLUDE_KEYWORDS):
+                            full_path = os.path.join(root, file)
+                            all_eligible_files.append(full_path)
+                            pdf_count += 1
+
+                if pdf_count > 0:
+                    log(f"📄 {pdf_count} fichiers PDF éligibles trouvés dans {os.path.join(entry.path, rel_path)}", log_file)
+
+        subdir_duration = time.time() - subdir_start_time
+        log(f"⏱️ Répertoire {entry.path} scanné en {subdir_duration:.2f}s", log_file)
+
+    total_eligible = len(all_eligible_files)
+    log(f"📊 {total_eligible} fichiers PDF éligibles trouvés au total (avant offset)", log_file)
     all_eligible_files.sort()
 
+    batch_count = 0
     for full_path in all_eligible_files[OFFSET:OFFSET + batch_size]:
         pdf_files.append(full_path)
+        batch_count += 1
         if len(pdf_files) >= batch_size:
+            log(f"📦 Lot n°{batch_count} préparé (n°{OFFSET+1} à n°{OFFSET+len(pdf_files)}abs.)", log_file)
             yield pdf_files
             pdf_files = []
 
     if pdf_files:
+        log(f"📦 Dernier lot préparé (n°{OFFSET+1} à n°{OFFSET+len(pdf_files)}abs.)", log_file)
         yield pdf_files
+
+    total_duration = time.time() - start_time
+    log(f"⏳ Scan terminé en {total_duration:.2f}s | {len(all_eligible_files)} fichiers trouvés", log_file)
 
 
 def process_file(file_path, file_count):
