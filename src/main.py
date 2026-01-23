@@ -5,6 +5,7 @@ import csv
 import time
 import uuid
 import threading
+import traceback
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pymupdf
@@ -36,6 +37,7 @@ EXCLUDE_KEYWORDS = [
     'cover', 'synthese', 'synthèse', 'glossaire', 'illustr', 'diff', 'image',
     'table', 'sommaire', 'remerciement', 'garde', 'planche', 'annnexe', 'annex_'
 ]
+
 # Verrous pour l'écriture thread-safe
 csv_writer_lock = threading.Lock()
 log_writer_lock = threading.Lock()
@@ -67,40 +69,39 @@ def find_pdf_files(batch_size):
                         parts[1] == "document" and
                         parts[2] == "0" and
                         parts[3] == "0"):
-
                     for file in files:
                         if file.lower().endswith('.pdf'):
                             file_lower = file.lower()
                             if not any(keyword in file_lower for keyword in EXCLUDE_KEYWORDS):
                                 all_eligible_files.append(os.path.join(root, file))
 
-                    all_eligible_files.sort()
+    all_eligible_files.sort()
 
-                    pdf_files = []
-                    for full_path in all_eligible_files[OFFSET:OFFSET + batch_size]:
-                        pdf_files.append(full_path)
-                        if len(pdf_files) >= batch_size:
-                            yield pdf_files
-                            pdf_files = []
+    for full_path in all_eligible_files[OFFSET:OFFSET + batch_size]:
+        pdf_files.append(full_path)
+        if len(pdf_files) >= batch_size:
+            yield pdf_files
+            pdf_files = []
 
     if pdf_files:
         yield pdf_files
 
 
 def process_file(file_path, file_count):
+    """Traite un fichier PDF et capture toutes les erreurs sans interrompre le script."""
     start_time = time.time()
-    try:
-        message = f"📖 Traitement de {file_path}"
-        log(message, log_file)
+    file_path_log = f"n°{file_count} (n°{file_count + OFFSET} abs.) {file_path}"
+    log(f"📖 Traitement de {file_path_log}", log_file)
+    matches = []
+    doc = None
 
+    try:
         try:
             doc = pymupdf.open(file_path)
         except Exception as e:
-            message = f"⚠️ Impossible d'ouvrir {file_path}: {str(e)}"
-            log(message, log_file)
-            return file_path, [], [message]
+            log(f"⚠️ Impossible d'ouvrir {file_path_log}: {str(e)}", log_file)
+            return file_path, [], [f"Erreur: {str(e)}"]
 
-        matches = []
         # Limite le nombre de pages à analyser si NB_PAGES > 0
         pages_nb_to_scan = min(len(doc), NB_PAGES) if NB_PAGES > 0 else len(doc)
 
@@ -112,84 +113,82 @@ def process_file(file_path, file_count):
                 if found_matches:
                     matches.extend(found_matches)
             except Exception as e:
-                log(f"[DEBUG] Erreur sur la page {page_num} de {file_path}: {str(e)}", log_file)
+                log(f"[DEBUG] Erreur sur la page {page_num} de {file_path_log}: {str(e)}", log_file)
                 continue
 
         duration = time.time() - start_time
-        absolute_file_number = file_count + OFFSET
-        message = f"⏱️  n°{file_count} (n°{absolute_file_number}abs.) {file_path} traité en {duration:.2f}s ({pages_nb_to_scan}/{len(doc)} pages) - {len(matches)} matches"
-        log(message, log_file)
-        return file_path, matches, [message]
-    except Exception as e:
-        message = f"⚠️  Erreur sur {file_path}: {e}"
-        log(message, log_file)
-        return file_path, [], [message]
-    finally:
-        doc.close()
+        log(f"⏱️ {file_path_log} traité en {duration:.2f}s ({pages_nb_to_scan}/{len(doc)} pages) - {len(matches)} correspondances", log_file)
+        return file_path, matches, [f"Succès: {len(matches)} correspondances"]
 
+    except Exception as e:
+        error_msg = f"❌ ERREUR CRITIQUE sur {file_path_log}: {str(e)}\n{traceback.format_exc()}"
+        log(error_msg, log_file)
+        return file_path, [], [error_msg]
+
+    finally:
+        if doc:
+            try:
+                doc.close()
+            except:
+                pass  # Ignore les erreurs de fermeture
 
 def main():
     CSV_FILE = os.path.join(OUTPUT_DIR, f"{DATE_NAME}_results_{OFFSET}_to_{OFFSET + MAX_FILES}.csv")
     csvfile = open(CSV_FILE, 'w', newline='', encoding='utf-8')
+    total_matches = 0
+    script_start_time = datetime.now()
+    log(f"🚀 Début du batch (ID: {RUN_ID})", log_file)
 
-    if not os.path.exists("/starstock"):
-        log(f"[ERREUR] Le répertoire /starstock n'est pas monté ou inaccessible.", log_file)
+    if not os.path.exists(ROOT_DIR):
+        log(f"[ERREUR] {ROOT_DIR} inaccessible.", log_file)
         return
 
-    if not os.listdir("/starstock"):
-        log(f"[AVERTISSEMENT] /starstock est vide ou ne contient pas de sous-répertoires.", log_file)
-
-    script_start_time = datetime.now()
-    print(f"[{script_start_time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 Début du batch (ID: {RUN_ID})")
+    if not os.listdir(ROOT_DIR):
+        log(f"[AVERTISSEMENT] {ROOT_DIR} est vide.", log_file)
+        return
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    total_matches = 0
 
     try:
-        # Écrit l'en-tête du CSV avec verrou
         with csv_writer_lock:
             writer = csv.writer(csvfile)
             writer.writerow(["file", "match"])
-            csvfile.flush()  # Force l'écriture
+            csvfile.flush()
 
-        log(f"📦 Début du batch (ID: {RUN_ID})", log_file=log_file)
-
-        # Récupère le batch unique
         batch = next(find_pdf_files(MAX_FILES), [])
         if not batch:
-            log(f"[INFO] Aucun fichier à traiter.", log_file=log_file)
+            log("[INFO] Aucun fichier à traiter.", log_file)
             return
 
+        log(f"📦 Début à {datetime.now().strftime('%H:%M:%S')}", log_file)
         batch_start_time = datetime.now()
-        log(f"📦 Début à {datetime.now().strftime('%H:%M:%S')}", log_file=log_file)
 
-        futures = []
         with ThreadPoolExecutor(max_workers=int(os.getenv("MAX_WORKERS", "4"))) as executor:
-            file_count = 0
-            for file in batch:
-                file_count += 1
+            futures = []
+            for file_count, file in enumerate(batch, start=1):
                 futures.append(executor.submit(process_file, file, file_count))
 
             for future in as_completed(futures):
-                file_path, matches, messages = future.result()
-
-                if matches:
-                    with csv_writer_lock:
-                        writer = csv.writer(csvfile)
-                        for match in matches:
-                            writer.writerow([file_path, match])
-                        csvfile.flush()  # Force l'écriture
-                    total_matches += len(matches)
+                try:
+                    file_path, matches, messages = future.result()
+                    if matches:
+                        with csv_writer_lock:
+                            writer = csv.writer(csvfile)
+                            for match in matches:
+                                writer.writerow([file_path, match])
+                            csvfile.flush()
+                        total_matches += len(matches)
+                except Exception as e:
+                    log(f"⚠️ Erreur dans la récupération du résultat: {str(e)}", log_file)
+                    continue
 
         batch_end_time = datetime.now()
         batch_duration = (batch_end_time - batch_start_time).total_seconds()
-        log(f"[{batch_end_time.strftime('%Y-%m-%d %H:%M:%S')}] 🎉 Lot terminé", log_file=log_file)
-        log(f"⏳ Durée totale: {batch_duration:.2f} secondes | {total_matches} correspondances trouvées dans {CSV_FILE}",
-            log_file=log_file)
+        log(f"🎉 Lot terminé en {batch_duration:.2f}s | {total_matches} correspondances dans {CSV_FILE}", log_file)
+
     finally:
         csvfile.close()
         log_file.close()
-
 
 if __name__ == "__main__":
     main()
