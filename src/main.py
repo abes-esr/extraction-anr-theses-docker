@@ -102,7 +102,7 @@ def find_pdf_files():
 
         subdir_duration = time.time() - subdir_start_time
         log(f"⏱️ Répertoire {entry.path} scanné en {subdir_duration:.2f}s", log_file)
-        log(f"Total des fichiers trouvés : {len(max_needed)}", log_file)
+        log(f"Total des fichiers trouvés : {len(all_eligible_files)}", log_file)
 
         if len(all_eligible_files) >= max_needed:
             break
