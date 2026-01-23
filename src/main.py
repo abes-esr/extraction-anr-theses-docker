@@ -11,16 +11,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pymupdf
 from dotenv import load_dotenv
 import functools
-import sys
 
 # Désactive le buffer pour les logs
 print = functools.partial(print, flush=True)
 load_dotenv()
 
 # Variables d'environnement
-MAX_FILES = int(os.getenv("MAX_FILES", "1000"))
+MAX_FILES = int(os.getenv("MAX_FILES", "1000"))  # Total à traiter
 OFFSET = int(os.getenv("OFFSET", "0"))
 NB_PAGES = int(os.getenv("NB_PAGES", "0"))  # 0 = toutes les pages
+CHUNK_SIZE = 1000
 ROOT_DIR = "/starstock"
 PATTERN = re.compile(r"ANR-(?:\d{2}-)?[A-Za-z0-9]{4,8}(?:-\d{1,4})?\b")
 OUTPUT_DIR = "/output"
@@ -54,11 +54,11 @@ def log(message, log_file=None):
             log_file.flush()  # Force l'écriture
 
 
-def find_pdf_files(batch_size):
-    """Génère des lots de fichiers PDF depuis /starstock/*/THESE_*/document/0/0/ avec logs de suivi."""
-    pdf_files = []
+def find_pdf_files():
+    """Génère des chunks de fichiers PDF triés par sous-répertoire, puis par nom de fichier, en s'arrêtant à OFFSET + MAX_FILES."""
     all_eligible_files = []
-    log(f"🔍 Début du scan des fichiers PDF (offset={OFFSET}, batch_size={batch_size})", log_file)
+    log(f"🔍 Début du scan des fichiers PDF (offset={OFFSET}, max={MAX_FILES})", log_file)
+    max_needed = OFFSET + MAX_FILES  # Nombre maximal de fichiers nécessaires à l'élaboration de la liste à traiter
 
     start_time = time.time()
     for i, entry in enumerate(os.scandir(ROOT_DIR)):
@@ -78,7 +78,7 @@ def find_pdf_files(batch_size):
                     parts[3] == "0":
                 log(f"📂 Trouvé structure valide : {os.path.join(entry.path, rel_path)}", log_file)
                 pdf_count = 0
-                for file in files:
+                for file in sorted(files):  # Tri alphabétique local
                     if file.lower().endswith('.pdf'):
                         file_lower = file.lower()
                         if not any(keyword in file_lower for keyword in EXCLUDE_KEYWORDS):
@@ -86,37 +86,42 @@ def find_pdf_files(batch_size):
                             all_eligible_files.append(full_path)
                             pdf_count += 1
 
+                            # Arrêt si on a assez de fichiers
+                            if len(all_eligible_files) >= max_needed:
+                                break  # Sort de la boucle de fichiers
+
                 if pdf_count > 0:
                     log(f"📄 {pdf_count} fichiers PDF éligibles trouvés dans {os.path.join(entry.path, rel_path)}", log_file)
+
+                if len(all_eligible_files) >= max_needed:
+                    break  # Sort de la boucle os.walk
 
         subdir_duration = time.time() - subdir_start_time
         log(f"⏱️ Répertoire {entry.path} scanné en {subdir_duration:.2f}s", log_file)
 
+        if len(all_eligible_files) >= max_needed:
+            break  # Sort de la boucle des répertoires
+
     total_eligible = len(all_eligible_files)
-    log(f"📊 {total_eligible} fichiers PDF éligibles trouvés au total (avant offset)", log_file)
-    all_eligible_files.sort()
+    log(f"📊 {total_eligible} fichiers PDF éligibles trouvés (après offset)", log_file)
 
-    batch_count = 0
-    for full_path in all_eligible_files[OFFSET:OFFSET + batch_size]:
-        pdf_files.append(full_path)
-        batch_count += 1
-        if len(pdf_files) >= batch_size:
-            log(f"📦 Lot n°{batch_count} préparé (n°{OFFSET+1} à n°{OFFSET+len(pdf_files)}abs.)", log_file)
-            yield pdf_files
-            pdf_files = []
-
-    if pdf_files:
-        log(f"📦 Dernier lot préparé (n°{OFFSET+1} à n°{OFFSET+len(pdf_files)}abs.)", log_file)
-        yield pdf_files
+    # Découpe en chunks de CHUNK_SIZE
+    for chunk_start in range(0, min(MAX_FILES, total_eligible - OFFSET), CHUNK_SIZE):
+        chunk_end = chunk_start + CHUNK_SIZE
+        chunk = all_eligible_files[OFFSET + chunk_start: OFFSET + chunk_end]
+        if chunk:
+            log(f"📦 Chunk préparé : n°{OFFSET + chunk_start + 1} à n°{OFFSET + chunk_end}abs. ({len(chunk)} fichiers)", log_file)
+            yield chunk
 
     total_duration = time.time() - start_time
     log(f"⏳ Scan terminé en {total_duration:.2f}s | {len(all_eligible_files)} fichiers trouvés", log_file)
 
 
-def process_file(file_path, file_count):
-    """Traite un fichier PDF et capture toutes les erreurs sans interrompre le script."""
+def process_file(file_path, file_count, chunk_start):
+    """Traite un fichier PDF avec logs détaillés."""
     start_time = time.time()
-    file_path_log = f"n°{file_count} (n°{file_count + OFFSET} abs.) {file_path}"
+    absolute_file_number = chunk_start + file_count
+    file_path_log = f"n°{file_count} (n°{absolute_file_number}abs.) {file_path}"
     log(f"📖 Traitement de {file_path_log}", log_file)
     matches = []
     doc = None
@@ -181,36 +186,34 @@ def main():
             writer.writerow(["file", "match"])
             csvfile.flush()
 
-        batch = next(find_pdf_files(MAX_FILES), [])
-        if not batch:
-            log("[INFO] Aucun fichier à traiter.", log_file)
-            return
+        chunk_index = 0
+        for chunk in find_pdf_files():
+            chunk_index += 1
+            chunk_start_abs = OFFSET + (chunk_index - 1) * CHUNK_SIZE
+            log(f"🔧 Début du chunk {chunk_index} (n°{chunk_start_abs + 1} à n°{chunk_start_abs + len(chunk)}abs.)", log_file)
+            chunk_start_time = datetime.now()
 
-        log(f"📦 Début à {datetime.now().strftime('%H:%M:%S')}", log_file)
-        batch_start_time = datetime.now()
+            with ThreadPoolExecutor(max_workers=int(os.getenv("MAX_WORKERS", "4"))) as executor:
+                futures = []
+                for file_count, file in enumerate(chunk, start=1):
+                    futures.append(executor.submit(process_file, file, file_count, chunk_start_abs))
 
-        with ThreadPoolExecutor(max_workers=int(os.getenv("MAX_WORKERS", "4"))) as executor:
-            futures = []
-            for file_count, file in enumerate(batch, start=1):
-                futures.append(executor.submit(process_file, file, file_count))
+                for future in as_completed(futures):
+                    try:
+                        file_path, matches, messages = future.result()
+                        if matches:
+                            with csv_writer_lock:
+                                writer = csv.writer(csvfile)
+                                for match in matches:
+                                    writer.writerow([file_path, match])
+                                csvfile.flush()
+                            total_matches += len(matches)
+                    except Exception as e:
+                        log(f"⚠️ Erreur dans la récupération du résultat: {str(e)}", log_file)
+                        continue
 
-            for future in as_completed(futures):
-                try:
-                    file_path, matches, messages = future.result()
-                    if matches:
-                        with csv_writer_lock:
-                            writer = csv.writer(csvfile)
-                            for match in matches:
-                                writer.writerow([file_path, match])
-                            csvfile.flush()
-                        total_matches += len(matches)
-                except Exception as e:
-                    log(f"⚠️ Erreur dans la récupération du résultat: {str(e)}", log_file)
-                    continue
-
-        batch_end_time = datetime.now()
-        batch_duration = (batch_end_time - batch_start_time).total_seconds()
-        log(f"🎉 Lot terminé en {batch_duration:.2f}s | {total_matches} correspondances dans {CSV_FILE}", log_file)
+            chunk_duration = (datetime.now() - chunk_start_time).total_seconds()
+            log(f"🎉 Chunk {chunk_index} terminé en {chunk_duration:.2f}s | {total_matches} correspondances totales", log_file)
 
     finally:
         csvfile.close()
