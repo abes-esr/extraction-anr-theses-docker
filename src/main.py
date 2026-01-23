@@ -83,7 +83,7 @@ def find_pdf_files_generator():
     for entry in sorted(os.scandir(ROOT_DIR), key=lambda e: e.name):
         if not entry.is_dir():
             continue
-        log(f"📁 [{i+1}] Exploration du répertoire : {entry.path}", log_file)
+        log(f"📁 Exploration du répertoire : {entry.path}", log_file)
         subdir_start_time = time.time()
 
         # Tri alphanumérique des sous-dossiers THESE_*
