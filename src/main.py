@@ -23,8 +23,8 @@ MAX_FILES = int(os.getenv("MAX_FILES", "10000"))  # Total à traiter
 OFFSET = int(os.getenv("OFFSET", "50"))
 NB_PAGES = int(os.getenv("NB_PAGES", "0"))  # 0 = toutes les pages
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "100"))  # Taille des chunks
-ROOT_DIR = str(os.getenv("DATA_PATH", "/starstock"))
-OUTPUT_DIR =  str(os.getenv("OUTPUT_PATH", "/output"))
+ROOT_DIR = "/starstock"
+OUTPUT_DIR =  "/output"
 PATTERN = re.compile(r"ANR-(?:\d{2}-)?[A-Za-z0-9]{4,8}(?:-\d{1,4})?\b")
 RUN_ID = str(uuid.uuid4())[:8]
 DATE_NAME = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
