@@ -15,3 +15,4 @@ services:
       - MAX_FILES=${MAX_FILES}
       - OFFSET=${OFFSET}
       - MAX_WORKERS=${MAX_WORKERS}
+    command: bash -c "python3 /app/main.py && tail -f /dev/null"

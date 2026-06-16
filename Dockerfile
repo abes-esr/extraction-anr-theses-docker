@@ -9,5 +9,3 @@ COPY src/ .
 # Récupérer l'heure du serveur
 ENV TZ=Europe/Paris
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
-# Commande par défaut
-CMD ["python", "main.py"]
