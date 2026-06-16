@@ -257,6 +257,8 @@ def main(log_file):
 
 
 if __name__ == "__main__":
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
     with open(LOG_FILE, 'w', encoding='utf-8') as log_file:
         main(log_file)
 
